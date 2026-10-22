@@ -1,12 +1,10 @@
 # Forecasting Hourly Air Pollution in Beijing Using Weather Data
 
-We're exploring how well weather and time-related data can estimate hourly PM2.5 levels in Beijing. We plan to compare a simple baseline with Linear Regression, Ridge Regression, and Random Forest Regression.
+We estimate hourly PM2.5 in Beijing using weather and time features. These are same-hour estimates rather than future-hour forecasts.
 
-The project title says forecasting, but using weather from the same hour estimates pollution for that hour. We'll need to define a prediction horizon and available inputs before making claims about future-hour predictions. For now, we're just setting up the Python environment.
+CSC 3730 — Machine Learning and Data Analytics
 
-**Course:** CSC 3730 — Machine Learning and Data Analytics, Louisiana State University
-
-**Group:** Group 7
+Louisiana State University — Group 7
 
 ## Members
 
@@ -19,49 +17,68 @@ The project title says forecasting, but using weather from the same hour estimat
 - Renee Vo
 - David Zhong
 
-## Dataset
+## Dataset and models
 
-We'll use the [UCI Beijing PM2.5 dataset](https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data), which covers hourly pollution and weather observations from 2010 through 2014. The dataset hasn't been downloaded as part of this setup.
+Use the [UCI Beijing PM2.5 dataset](https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data) from 2010–2014. Place `PRSA_data_2010.1.1-2014.12.31.csv` in `data/`.
 
-Source: Chen, S. (2015). *Beijing PM2.5* [Dataset]. UCI Machine Learning Repository. [DOI](https://doi.org/10.24432/C5JS49). Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
+Models:
+
+- Mean baseline
+- Linear Regression
+- Ridge Regression
+- Random Forest Regression
+
+Train on 2010–2012 and validate on 2013. Refit on 2010–2013 and test on 2014. Preprocessing learns from training data only. Rows without PM2.5 are dropped.
+
+Source: Chen, S. (2015). *Beijing PM2.5* [Dataset]. UCI Machine Learning Repository. [DOI](https://doi.org/10.24432/C5JS49). [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 ## Setup
 
-Install Python 3.11 and Git, then clone the repo:
+Install Python 3.11 and Git. Clone the repo:
 
 ```bash
 git clone https://github.com/CardinTran/beijing-pm25-forecasting.git
 cd beijing-pm25-forecasting
 ```
 
-On macOS or Linux, create and activate a virtual environment:
+macOS or Linux:
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate
 ```
 
-On Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-If PowerShell blocks activation, use Command Prompt and run `.venv\Scripts\activate.bat` instead.
+If PowerShell blocks activation use `.venv\Scripts\activate.bat` in Command Prompt.
 
-With the environment active, install the dependencies:
+## Run
+
+With `.venv` active run these commands from the repo folder:
 
 ```bash
 python -m pip install -r requirements.txt
+python main.py
 ```
 
-We're starting with NumPy, pandas, scikit-learn, Matplotlib, and seaborn. The versions in `requirements.txt` keep our starting environments consistent.
-
-To leave the virtual environment:
+To leave the environment:
 
 ```bash
 deactivate
 ```
 
-Activate it again whenever you return to the project. The `.venv` folder stays local and isn't committed to Git.
+## Results
+
+The program prints MAE and RMSE in µg/m³ plus R². It saves:
+
+- `results/model_comparison.csv` — validation and test scores
+- `results/figures/model_comparison.png` — test score comparison
+- `results/figures/actual_vs_predicted.png` — predictions against actual 2014 values
+- `results/figures/correlation_heatmap.png` — numeric correlations from 2010–2013
+
+Each run replaces these outputs.
