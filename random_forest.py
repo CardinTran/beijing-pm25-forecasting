@@ -53,17 +53,21 @@ def add_weather_history(data):
     return data.drop(columns="timestamp")
 
 
-def make_model():
+def make_preprocessor():
     # Trees split on thresholds, so numeric features need no scaling
     numeric = SimpleImputer(strategy="median")
     categorical = Pipeline([
         ("imputer", SimpleImputer(strategy="most_frequent")),
         ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False)),
     ])
-    preprocessor = ColumnTransformer([
+    return ColumnTransformer([
         ("numeric", numeric, NUMERIC_FEATURES),
         ("categorical", categorical, CATEGORICAL_FEATURES),
     ], verbose_feature_names_out=False)
+
+
+def make_model():
+    preprocessor = make_preprocessor()
     # Fix the seed for repeatable fits
     forest = RandomForestRegressor(
         n_estimators=200, min_samples_leaf=2, random_state=42, n_jobs=-1,
