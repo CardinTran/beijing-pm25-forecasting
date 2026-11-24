@@ -1,127 +1,290 @@
 \documentclass[11pt]{article}
 \usepackage[margin=1in]{geometry}
-\usepackage{amsmath,amssymb,amsthm}
+\usepackage{amsmath}
 \usepackage{graphicx}
 \usepackage{booktabs}
-\usepackage{hyperref}
-\usepackage{cleveref}
 \usepackage{natbib}
-\usepackage{float}
-\newtheorem{theorem}{Theorem}
-\newtheorem{proposition}{Proposition}
-\newtheorem{lemma}{Lemma}
-\newtheorem{corollary}{Corollary}
-\theoremstyle{definition}
-\newtheorem{definition}{Definition}
-\title{\textbf{Forecasting Hourly Air Pollution in Beijing Using Weather Data}}
-\author{Cardin Tran, Jimmy Rubio-Gonalez, Isaac Humphries, Vamsi Marrapu,\\ Abdul Mutaal, Nhi Tran, Renee Vo, David Zhong}
-\date{}
+\usepackage[hidelinks]{hyperref}
+\renewcommand{\bibsection}{\section{References}}
+\newcommand{\conc}{\ensuremath{\mu\mathrm{g}/\mathrm{m}^3}}
+
+\title{Estimating Hourly PM2.5 in Beijing from Weather Data}
+\author{Cardin Tran, Jimmy Rubio-Gonalez, Isaac Humphries, Vamsi Marrapu,\\
+Abdul Mutaal, Nhi Tran, Renee Vo, David Zhong\\[0.6em]
+Louisiana State University\\
+CSC 3730 \textit{Machine Learning and Data Analytics}, Group 7}
+\date{\href{https://github.com/CardinTran/beijing-pm25-forecasting}{github.com/CardinTran/beijing-pm25-forecasting}}
+
 \begin{document}
 \maketitle
-\begin{abstract}
-Fine particulate matter (PM2.5) is an important indicator of air pollution. This study examines how well weather and calendar variables explain hourly PM2.5 concentrations in Beijing using the UCI Beijing PM2.5 dataset from 2010--2014. After removing 2,067 observations without a PM2.5 measurement, 41,757 labeled observations remain. We compare a mean baseline, ordinary least-squares Linear Regression, Ridge Regression, and Random Forest Regression. Models are initially assessed on 2013 after training on 2010--2012, then refitted on 2010--2013 and evaluated on a held-out 2014 test set. Random Forest achieves the best test performance (MAE 48.073 $\mu$g/m$^3$, RMSE 71.397 $\mu$g/m$^3$, $R^2=0.417$), outperforming the linear models and baseline. The results suggest that nonlinear relationships are useful for estimating PM2.5 from meteorological and calendar conditions, although substantial unexplained variation remains. Because the inputs describe the same hour as the target, this experiment evaluates contemporaneous estimation rather than an operational future-hour forecast.
-\end{abstract}
-\noindent\textbf{Keywords:} Air Pollution, PM2.5, Machine Learning, Regression, Random Forest, Weather Data, Forecasting
+
+\section{Abstract}
+We examine how much recent weather history and tuned tree ensembles improve same-hour PM2.5 estimation in Beijing. The UCI dataset contains 43,824 hourly records from 2010--2014, of which 41,757 have PM2.5 readings. We train on 2010--2012, tune on 2013, and evaluate models refitted on 2010--2013 against 2014 measurements. Across three tuned ensembles, adding 13 weather-history features reduced 2014 RMSE by 5.02--7.40 \conc{}. XGBoost had the lowest 2014 RMSE (60.110 \conc{}, compared with 71.397 for the original forest). A paired block bootstrap showed that the RMSE difference between the two boosted models was uncertain. All models underestimated the high-pollution group on average, including XGBoost, whose signed error averaged -117.7 \conc{} in that group. Weather history improved overall estimation, with large errors remaining at high concentrations.
 
 \section{Introduction}
-Airborne fine particulate matter, commonly described as PM2.5, consists of particles with aerodynamic diameters of approximately 2.5 micrometers or smaller. High concentrations are a public-health concern, making it useful to understand the relationship between pollution levels and routinely recorded environmental conditions. Meteorological variables may be associated with the accumulation or dispersion of pollutants, but these relationships can be nonlinear and affected by unobserved emission sources.
+Fine particulate matter (PM2.5) consists of particles with aerodynamic diameters of about 2.5 micrometers or less. Long-term exposure to fine particulate pollution is associated with adverse health outcomes, including cardiopulmonary mortality \citep{pope2002}. Weather affects the conditions under which particulate pollution can accumulate or disperse. A model based on routinely measured weather can help characterize how much of the variation in hourly concentrations is predictable from those conditions and where such estimates remain unreliable.
 
-Our research question is: \emph{How accurately can common regression methods estimate hourly PM2.5 concentrations in Beijing from weather observations and calendar information?} We compare three regression algorithms against a simple mean predictor using the same features and chronological evaluation periods. Our original proposal used the term ``forecasting.'' In the completed implementation, the weather features and PM2.5 measurement belong to the same hour. We therefore use ``estimation'' for the actual prediction task and reserve ``forecasting'' for future work with a defined prediction horizon.
+We ask how much historical meteorological feature engineering and optimized ensemble learning improve hourly PM2.5 estimation under a chronological evaluation protocol. The inputs include weather observed in the same hour as the pollution measurement, so the task is contemporaneous estimation. A future-hour forecast would require a defined lead time and predictors available at the time the forecast is issued.
 
-\section{Related Work}
-The UCI Beijing PM2.5 dataset provides hourly pollution and weather measurements for a five-year historical period and is intended for regression analysis \citep{uci381}. Standard linear regression offers an interpretable additive model; Ridge Regression adds an $L_2$ penalty to shrink coefficients; and Random Forest Regression combines multiple decision trees to capture nonlinear relationships and interactions \citep{sklearnlinear,sklearnridge,sklearnforest}. These methods represent a useful range of complexity for a comparative undergraduate machine learning study. Rather than claiming an exhaustive review of air-pollution prediction research, this report focuses on the methods implemented and the results measured in our experiment.
+\section{Related Work and Research Gap}
+\citet{liang2015} used meteorological information to adjust Beijing pollution measurements and examine changes associated with emissions controls and winter heating. Their analysis illustrates that both past and current weather can be relevant to PM2.5, with weather adjustment serving a different purpose from evaluating prediction errors. \citet{zheng2015} combined local temporal patterns, readings from nearby stations, and weather forecasts to predict air quality up to 48 hours ahead. Those extra inputs and the future target make its scores unsuitable for direct comparison with the same-hour, weather-only estimates studied here.
 
-\section{Preliminaries}
-Let $y_i$ denote the measured PM2.5 concentration and $\hat y_i$ the model's estimate, both in $\mu$g/m$^3$. The baseline predicts the mean PM2.5 concentration in the training set. Linear Regression estimates $\hat y=\beta_0+\sum_j\beta_j x_j$, while Ridge minimizes squared prediction error with an additional penalty proportional to $\alpha\sum_j\beta_j^2$ (excluding the intercept). Random Forest averages predictions from an ensemble of regression trees.
+Ridge regression shrinks coefficients in correlated designs \citep{hoerl1970}. Random forests average trees built using resampled data and randomized feature selection \citep{breiman2001}. Gradient boosting fits an additive model in stages using the gradient of a loss function \citep{friedman2001}, and XGBoost extends this approach with regularized tree learning \citep{chen2016}. \citet{tashman2000} describes the need for time-ordered out-of-sample evaluation and the value of multiple test periods. Our comparison addresses a narrower question on this dataset: whether adding the same set of lagged weather summaries helps several tree ensembles under fixed settings, and whether any gains persist in a later calendar year and during unusually polluted hours.
 
-For $n$ observations, evaluation uses
+\section{Novelty and Research Contributions}
+We compare seven configurations on identical chronological splits, including the group's original four baselines and three tuned ensembles. For each newer ensemble, we cross the 10- and 23-feature sets with untuned and tuned settings. This isolates the effect of adding history at fixed settings and of switching to the selected settings at fixed features. We also report permutation importance, errors by pollution level and season, and paired block-bootstrap intervals for selected differences in RMSE. The contribution is the controlled comparison and error analysis using existing learning algorithms.
+
+\section{Proposed Methodology}
+\subsection{Data preparation and weather history}
+We parse the date fields, sort rows by timestamp and verify that the raw series has one row per hour. Seasons follow calendar months: December--February is winter, March--May is spring, June--August is summer, and September--November is autumn. The ten original predictors are temperature (\texttt{TEMP}), dew point (\texttt{DEWP}), pressure (\texttt{PRES}), cumulative wind speed (\texttt{Iws}), accumulated snow hours (\texttt{Is}), accumulated rain hours (\texttt{Ir}), hour, month, combined wind direction (\texttt{cbwd}), and season. Temperature and dew point are in degrees Celsius and pressure is reported in hPa. Season and wind direction are categorical. The row ID, year, day of month, and all current or past PM2.5 values are excluded from the input.
+
+For each of \texttt{DEWP}, \texttt{PRES}, \texttt{TEMP}, and \texttt{Iws}, we compute a three-hour difference and two trailing means. With $t=1$ at the beginning of the record and $m=\min(t,w)$,
+\begin{equation}
+\Delta_3 x_t=x_t-x_{t-3}, \qquad
+\bar x_{t,w}=\frac{1}{m}\sum_{j=0}^{m-1}x_{t-j}, \quad w\in\{24,72\}.
+\label{eq:history}
+\end{equation}
+The last additional feature sums recorded \texttt{Ir} values over the current and prior 23 hours, or the available prefix at the start. These operations use the full hourly weather series before rows with missing targets are removed, so a missing pollution reading does not compress the time window. The change in \texttt{Iws} describes a difference in a cumulative series, which can reflect resets as well as accumulation. The \texttt{Ir} sum can count accumulated rain hours repeatedly and serves as a rain-history proxy. It has no interpretation as rainfall depth, volume, or distinct hours of rain. Together these transformations add 13 inputs before encoding.
+
+Numeric gaps are filled with training medians and categorical gaps with training modes. Wind direction and season are one-hot encoded using categories observed at fit time. We retain numeric standardization for the original pipelines and use unscaled inputs for the new tree pipelines. Each preprocessing stage is fitted on the corresponding training period. Unavailable three-hour differences at the very start of the raw series occur on rows with missing targets.
+
+\subsection{Regression models and objectives}
+The mean baseline predicts the mean measured concentration in its training data. Linear Regression predicts $\hat y_i=\beta_0+\boldsymbol x_i^\top\boldsymbol\beta$ and fits coefficients by minimizing $\sum_i(y_i-\hat y_i)^2$. Ridge adds $\alpha\|\boldsymbol\beta\|_2^2$ with $\alpha=1$ to shrink coefficients, leaving the intercept unpenalized.
+
+A forest predicts $B^{-1}\sum_{b=1}^{B}T_b(\boldsymbol x)$, where each regression tree $T_b$ is fitted to a bootstrap sample. A smaller feature fraction limits the candidate variables at each split. The original forest uses 100 trees, all candidate features, unrestricted depth, and a minimum of two samples per leaf. The tuned forest selects these settings from its own grid.
+
+For boosting, the model score after step $m$ is $F_m(\boldsymbol x)=F_{m-1}(\boldsymbol x)+\eta T_m(\boldsymbol x)$. Each tree updates the score in a direction that reduces the chosen loss, with learning rate $\eta$ controlling the update size. Both implementations use binned inputs when searching for splits. XGBoost also penalizes tree complexity and uses second-order information to choose splits and leaf weights. Given an observation $y$ and a predicted mean $\mu$, the explored losses, up to constants and positive scale factors, are
+\begin{equation}
+\ell_{\rm SE}=(y-\mu)^2,\qquad
+\ell_{\rm P}=\mu-y\log\mu,\qquad
+\ell_{\rm T}=\frac{\mu^{2-p}}{2-p}-\frac{y\mu^{1-p}}{1-p}.
+\label{eq:losses}
+\end{equation}
+Squared error uses $\mu=F_m$. Poisson and Tweedie use $\mu=\exp(F_m)$ and thus produce positive estimates while allowing zero targets. Their losses weight errors differently across the concentration range. The Tweedie variance power is $p=1.5$, which corresponds to a variance proportional to $\mu^{1.5}$ under that working model. We compare these objectives because the concentrations are nonnegative and right-skewed. PM2.5 is a mass concentration, and the experiment does not test a distributional model for it.
+
+\subsection{Selection and scoring}
+We train on 2010--2012 and score each candidate on 2013. The lowest validation RMSE selects the settings for each ensemble. During the XGBoost search, the 2013 RMSE is monitored after every tree and training stops if it has failed to improve for 100 rounds, up to a maximum of 3,000 trees. The saved tree count includes the best round. The final fits start fresh on 2010--2013, with that tree count fixed and early stopping disabled. We use no shuffled folds.
+
+For $n$ labeled evaluation observations and evaluation mean $\bar y$, the measures are
 \begin{align}
-\mathrm{MAE} &= \frac{1}{n}\sum_{i=1}^{n}|y_i-\hat y_i|,\\
-\mathrm{RMSE} &= \sqrt{\frac{1}{n}\sum_{i=1}^{n}(y_i-\hat y_i)^2},\\
-R^2 &= 1-\frac{\sum_{i=1}^{n}(y_i-\hat y_i)^2}{\sum_{i=1}^{n}(y_i-\bar y)^2},
+\mathrm{MAE} &= n^{-1}\sum_{i=1}^{n}|y_i-\hat y_i|,\\
+\mathrm{RMSE} &= \sqrt{n^{-1}\sum_{i=1}^{n}(y_i-\hat y_i)^2},\\
+R^2 &= 1-\frac{\sum_{i=1}^{n}(y_i-\hat y_i)^2}{\sum_{i=1}^{n}(y_i-\bar y)^2}.
 \end{align}
-where $\bar y$ is the mean observed target in the evaluated split. Lower MAE and RMSE indicate smaller errors; higher $R^2$ indicates better explanatory performance relative to predicting the evaluated split's mean. RMSE penalizes large errors more heavily than MAE.
+MAE is the average error magnitude. Squaring the errors makes RMSE more sensitive to large misses. The $R^2$ reference mean comes from the evaluation period, so the training-mean baseline can have a negative score. All models are evaluated on the same labeled observations in each period.
 
-\section{Methodology}
-\subsection{Dataset and cleaning}
-We use the original \texttt{PRSA\_data\_2010.1.1-2014.12.31.csv} from the UCI Beijing PM2.5 dataset \citep{uci381}. It contains 43,824 hourly rows and 13 columns, including the target \texttt{pm2.5}, date/time fields, and meteorological variables. The observed PM2.5 values span 0 to 994 $\mu$g/m$^3$; among nonmissing targets, the median is 72 $\mu$g/m$^3$.
+\section{Dataset and Experimental Setup}
+We use the UCI Beijing PM2.5 dataset \citep{uci381}. It pairs hourly PM2.5 measurements from the U.S. Embassy in Beijing with meteorological observations from Beijing Capital International Airport. The raw file has 43,824 hourly rows and 13 columns. Only the target has missing entries. There are 2,067 missing measurements, leaving 41,757 labeled rows with a median PM2.5 of 72 \conc{} and a range of 0--994 \conc{}. Table~\ref{tab:splits} lists the chronological partitions.
 
-There are 2,067 missing PM2.5 targets, which are removed rather than imputed because the target is required for supervised evaluation. This leaves 41,757 observations. The original file has no missing entries in the selected meteorological input columns, although the preprocessing pipeline is configured to impute future missing numeric or categorical features if encountered. The code parses and sorts timestamps, checks that timestamps are unique, and constructs a categorical season from month.
-
-\subsection{Features and transformations}
-The numeric features are temperature (\texttt{TEMP}), dew point (\texttt{DEWP}), pressure (\texttt{PRES}), cumulative wind speed (\texttt{Iws}), accumulated snow hours (\texttt{Is}), accumulated rain hours (\texttt{Ir}), hour, and month. The categorical features are combined wind direction (\texttt{cbwd}) and season. Numeric inputs pass through median imputation and standard scaling; categorical inputs pass through most-frequent imputation and one-hot encoding. These transformations are fit within a scikit-learn pipeline using only the corresponding training split, avoiding leakage of validation or test information into fitted preprocessing parameters.
-
-The dataset's row index and PM2.5 target are not used as input features. Calendar year is used to define the chronological split rather than supplied to the regression models.
-
-\subsection{Models}
-The baseline is \texttt{DummyRegressor(strategy="mean")}. Linear Regression uses the default ordinary least-squares estimator. Ridge uses $\alpha=1.0$. Random Forest uses 100 trees, a minimum of two samples per leaf, and random seed 42. These settings are fixed in the submitted implementation; no hyperparameter search is performed. All four models use the same feature set and comparable preprocessing pipelines.
-
-\section{Experimental Setup}
-We use a chronological development and test protocol to avoid randomly mixing earlier and later observations. The initial training period is 2010--2012 (24,418 labeled observations), and 2013 is the validation period (8,678 observations). After comparing performance on 2013, the models are retrained on all available labeled data from 2010--2013 (33,096 observations) and evaluated once on 2014 (8,661 observations). This yields a 41,757-row labeled dataset in total.
-
-All experiments use Python, pandas, NumPy, scikit-learn, matplotlib, and seaborn. The submitted repository provides \texttt{main.py} as the entry point and separates loading, preprocessing, training, and evaluation into modules in \texttt{src/}. Running \texttt{python main.py} saves a CSV of validation and test metrics and three figures. The reported numbers below come from the supplied execution output and \texttt{results/model\_comparison.csv}, not from hypothetical runs.
-
-\section{Results}
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Validation performance on 2013 ($n=8{,}678$). MAE and RMSE are in $\mu$g/m$^3$.}
-\label{tab:validation}
-\begin{tabular}{lrrr}\toprule
-Model & MAE & RMSE & $R^2$ \\\midrule
-Mean baseline & 70.923 & 98.142 & -0.002 \\
-Linear Regression & 58.141 & 82.224 & 0.297 \\
-Ridge Regression & 58.139 & 82.225 & 0.297 \\
-Random Forest & \textbf{48.385} & \textbf{74.493} & \textbf{0.423} \\\bottomrule
+\caption{Labeled observations used during selection, final fitting and testing.}
+\label{tab:splits}
+\begin{tabular}{llr}
+\toprule
+Role & Period & Observations \\
+\midrule
+Initial training & 2010--2012 & 24,418 \\
+Validation & 2013 & 8,678 \\
+Development (initial training and validation) & 2010--2013 & 33,096 \\
+Final evaluation & 2014 & 8,661 \\
+\bottomrule
 \end{tabular}
 \end{table}
 
-\begin{table}[H]
+\begin{table}[htbp]
 \centering
-\caption{Held-out test performance on 2014 ($n=8{,}661$). MAE and RMSE are in $\mu$g/m$^3$.}
-\label{tab:test}
-\begin{tabular}{lrrr}\toprule
-Model & MAE & RMSE & $R^2$ \\\midrule
-Mean baseline & 69.161 & 93.533 & -0.000 \\
-Linear Regression & 55.680 & 79.057 & 0.285 \\
-Ridge Regression & 55.679 & 79.057 & 0.285 \\
-Random Forest & \textbf{48.073} & \textbf{71.397} & \textbf{0.417} \\\bottomrule
+\small
+\caption{Chronological search spaces. Each grid is a Cartesian product.}
+\label{tab:grid}
+\begin{tabular}{@{}lp{0.60\linewidth}r@{}}
+\toprule
+Ensemble & Settings searched & Candidates \\
+\midrule
+Random Forest & Trees: 100, 300. Depth: unrestricted, 20. Minimum leaf size: 5, 10, 20, 50. Feature fraction: 1.0, 0.5, 0.33. & 48 \\
+Histogram boosting & Loss: squared error, Poisson. Learning rate: 0.03, 0.1. Iterations: 300, 1,000. Maximum leaves: 15, 31, 63. Minimum leaf size: 20, 100. & 48 \\
+XGBoost & Objective: squared error, Poisson, Tweedie. Depth: 3, 4, 6. Minimum child weight: 1, 10, 50. Row fraction: 0.8, 1.0. Column fraction per tree: 0.5, 0.8. & 108 \\
+\bottomrule
 \end{tabular}
 \end{table}
 
-Random Forest has the lowest test MAE and RMSE and the highest $R^2$. Compared with the mean baseline, its test MAE is approximately 30.5\% lower and RMSE approximately 23.7\% lower. Its RMSE is approximately 9.7\% lower than that of Linear Regression. Linear and Ridge Regression perform almost identically with the chosen Ridge penalty. Random Forest also ranks first on the 2013 validation period, so the relative ranking is consistent across these two held-out years.
+All searches use the expanded features (Table~\ref{tab:grid}). Both forests use squared-error splits and bootstrap samples of the training set size. Histogram boosting uses up to 255 bins, no $L_2$ regularization and no early stopping. XGBoost uses the CPU histogram method with up to 256 bins, learning rate 0.03, $L_2$ penalty 1, $L_1$ penalty 0, and split penalty $\gamma=0$. Minimum child weight in XGBoost is a threshold on the sum of second derivatives in a leaf. The Poisson objective uses XGBoost's default maximum delta step of 0.7.
 
-\begin{figure}[H]\centering
-\includegraphics[width=\textwidth]{figures/model_comparison.png}
-\caption{Held-out 2014 performance of the four regression approaches. The negative baseline $R^2$ is very close to zero.}\label{fig:comparison}
+Each ablation compares inputs at fixed settings. The untuned controls use the earlier standalone forest (200 trees, all features, unlimited depth and minimum leaf size two), default histogram boosting (squared error, learning rate 0.1, 100 iterations, 31 leaves, minimum leaf size 20, with early stopping disabled), and a 100-tree squared-error XGBoost model (depth six, child weight 1, full row and column fractions, with the shared learning rate). The tuned ablations keep the selected hyperparameters fixed, including XGBoost's tree count, when removing history.
+
+Experiments ran on CPU using Python 3.12.16, NumPy 2.2.6, pandas 2.2.3, scikit-learn 1.6.1, XGBoost 3.4.1, SciPy 1.18.1, Matplotlib 3.10.1 and seaborn 0.13.2. Stochastic fits and analyses use seed 42. Install the pinned dependencies with \texttt{python -m pip install -r requirements.txt}, then run \texttt{python main.py --mode full --jobs 4} to repeat the searches and subsequent analyses. The \texttt{--mode saved} option reproduces the final fits and diagnostics using the saved settings and skips the grids.
+
+\section{Experimental Results and Comparative Analysis}
+\subsection{Model comparison and selected settings}
+Table~\ref{tab:comparison} reports both evaluation years. Linear models improve on the mean baseline, while Ridge and ordinary least squares are nearly tied. The original forest lowers 2014 RMSE from 79.057 to 71.397 \conc{} compared with Linear Regression. The three tuned ensembles improve on the original forest in both periods. XGBoost has the lowest 2013 RMSE (63.352 \conc{}). XGBoost achieves the lowest 2014 MAE and RMSE, with an RMSE of 60.110 \conc{}. This represents a 15.8\% reduction in 2014 RMSE relative to the original forest and a 35.7\% reduction relative to the mean baseline.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Performance on identical labeled hours in 2013 ($n=8{,}678$) and 2014 ($n=8{,}661$). MAE and RMSE are in \conc{}.}
+\label{tab:comparison}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+& \multicolumn{3}{c}{2013 validation} & \multicolumn{3}{c}{2014 test} \\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+Model & MAE & RMSE & $R^2$ & MAE & RMSE & $R^2$ \\
+\midrule
+Mean baseline & 70.923 & 98.142 & -0.0016 & 69.161 & 93.533 & -0.0001 \\
+Linear Regression & 58.141 & 82.224 & 0.2970 & 55.680 & 79.057 & 0.2855 \\
+Ridge Regression & 58.139 & 82.225 & 0.2970 & 55.679 & 79.057 & 0.2855 \\
+Original Random Forest & 48.385 & 74.493 & 0.4230 & 48.073 & 71.397 & 0.4172 \\
+Tuned Random Forest & 44.649 & 67.445 & 0.5270 & 43.773 & 62.996 & 0.5463 \\
+Histogram Gradient Boosting & 40.646 & 63.502 & 0.5807 & 40.977 & 60.855 & 0.5766 \\
+XGBoost & 40.468 & 63.352 & 0.5827 & 40.236 & 60.110 & 0.5869 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{Selected hyperparameters and validation RMSE (\conc{}).}
+\label{tab:best}
+\begin{tabular}{@{}lp{0.60\linewidth}r@{}}
+\toprule
+Ensemble & Selected settings & RMSE \\
+\midrule
+Random Forest & 300 trees, depth 20, minimum leaf size 5, feature fraction 0.33. & 67.445 \\
+Histogram boosting & Poisson, rate 0.03, 1,000 iterations, 15 leaves, minimum leaf size 100. & 63.502 \\
+XGBoost & Tweedie, depth 3, child weight 1, row fraction 0.8, column fraction 0.5, 1,431 trees. & 63.352 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The lowest validation RMSE by objective in the XGBoost grid was 63.742, 64.142, and 63.352 \conc{} for squared error, Poisson, and Tweedie, respectively. In histogram boosting, the best squared-error and Poisson candidates achieved 64.140 and 63.502 \conc{}. These are comparisons of the best settings within the searched grids. The rerun reproduced the committed forest and histogram boosting winners. The XGBoost winner used the same objective, depth, child weight, and sampling fractions as the earlier grid. The selected tree count changed from 1,427 to 1,431, and validation RMSE changed from 63.092 to 63.352 \conc{}. We report the rerun throughout.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\linewidth]{figures/model_comparison.png}
+\caption{RMSE across the seven models in 2013 and 2014.}
+\label{fig:comparison}
 \end{figure}
 
-\begin{figure}[H]\centering
-\includegraphics[width=0.83\textwidth]{figures/actual_vs_predicted.png}
-\caption{Observed versus estimated PM2.5 for the 2014 test period. The dashed diagonal denotes perfect agreement.}\label{fig:predicted}
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/actual_vs_predicted.png}
+\caption{Observed and estimated PM2.5 for the 2014 test period. The dashed diagonal marks perfect agreement.}
+\label{fig:predicted}
 \end{figure}
 
-\begin{figure}[H]\centering
-\includegraphics[width=0.82\textwidth]{figures/correlation_heatmap.png}
-\caption{Pearson correlations among numeric inputs and PM2.5 on the 2010--2013 development data. These are descriptive associations, not causal effects.}\label{fig:correlation}
+\subsection{Feature and tuning ablation}
+Table~\ref{tab:ablation} and Figure~\ref{fig:ablation} compare the feature sets at fixed settings. Under tuned settings, weather history reduced test RMSE by 5.02, 7.40, and 7.36 \conc{} for Random Forest, histogram boosting, and XGBoost, respectively. It also lowered 2014 RMSE for each untuned control. At fixed expanded features, switching from untuned to selected settings reduced test RMSE by 1.90, 0.05, and 4.29 \conc{} in the same order. Histogram boosting gained much more from weather history than from its selected settings in 2014. The size of each tuning gain depends on its control, especially for XGBoost, where tuning includes a change in tree count. Comparisons across the three tuned 23-feature models describe the combined effect of architecture and model-specific settings.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{RMSE (\conc{}) by model, settings and input count. Setting pairs keep the inputs fixed. Feature pairs keep the settings fixed.}
+\label{tab:ablation}
+\begin{tabular}{@{}llrrrr@{}}
+\toprule
+&& \multicolumn{2}{c}{2013 validation} & \multicolumn{2}{c}{2014 test} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}
+Ensemble & Settings & 10 inputs & 23 inputs & 10 inputs & 23 inputs \\
+\midrule
+Random Forest & Untuned & 74.418 & 69.670 & 71.134 & 64.897 \\
+Random Forest & Tuned & 71.793 & 67.445 & 68.013 & 62.996 \\
+Histogram boosting & Untuned & 70.428 & 65.981 & 68.553 & 60.909 \\
+Histogram boosting & Tuned & 69.677 & 63.502 & 68.251 & 60.855 \\
+XGBoost & Untuned & 72.585 & 69.136 & 69.720 & 64.399 \\
+XGBoost & Tuned & 69.401 & 63.352 & 67.470 & 60.110 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/feature_ablation.png}
+\caption{2014 RMSE when adding 13 weather-history predictors with settings held fixed.}
+\label{fig:ablation}
 \end{figure}
 
-\section{Discussion}
-The results support the proposed expectation that a nonlinear tree ensemble can outperform simple linear regression on this historical dataset. Random Forest improves error measures without requiring a manually specified linear relationship between each weather variable and PM2.5. The near-identical performance of Linear and Ridge Regression suggests that the selected Ridge penalty did not meaningfully change predictive performance in this setup.
+\subsection{Permutation importance}
+For each final model we independently shuffle one original input column at a time on the 2014 rows, leaving the other columns intact. We repeat each permutation five times and measure the mean increase in RMSE. The categorical columns are shuffled before encoding, so a category and all its encoded columns are perturbed together. This gives all model families the same scoring rule and differs from split impurity or training gain, which describe how trees were built.
 
-However, the best test $R^2$ of 0.417 indicates that substantial variation in hourly PM2.5 remains unexplained. The RMSE of 71.397 $\mu$g/m$^3$ is materially larger than the MAE of 48.073 $\mu$g/m$^3$, consistent with some relatively large errors. The actual-versus-predicted plots permit visual inspection of such errors, but the current experiment does not separately calculate error rates for extreme pollution episodes. Therefore, the original hypothesis that severe spikes would be underestimated has not been quantitatively established by this analysis.
+Random Forest was most sensitive to the 72-hour temperature mean (RMSE increased by 26.7 \conc{}). Histogram boosting was most sensitive to the 72-hour temperature mean (RMSE increased by 40.4 \conc{}). XGBoost was most sensitive to same-hour dew point (RMSE increased by 51.5 \conc{}). These scores describe predictive use in fitted models. Related inputs can substitute for one another or produce unrealistic combinations when shuffled, and the importance rankings establish no causal relationship.
 
-Several limitations affect interpretation. First, weather observations are contemporaneous with the PM2.5 measurements, so these results do not establish next-hour or next-day forecasting performance. Second, the inputs omit direct measurements of emissions, traffic, and other possible drivers of air pollution. Third, this is one historical city and one held-out year; the results should not be assumed to transfer unchanged to present-day Beijing or other locations. Fourth, no systematic hyperparameter tuning, repeated time-series backtesting, uncertainty estimates, or formal feature-importance analysis was performed. Finally, dropping missing targets may introduce selection effects if the missing observations are not random.
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/feature_importance.png}
+\caption{Five largest permutation-importance scores for each tuned ensemble. Error bars show one standard deviation across the five shuffles.}
+\label{fig:importance}
+\end{figure}
 
-Future work could define a one-hour-ahead target, restrict predictors to values known at forecast time, compare against a persistence baseline, use rolling chronological validation, and report performance specifically for high-PM2.5 episodes. These are suggestions, not experiments performed in the current project.
+\subsection{High-pollution hours and seasonal performance}
+We define high pollution for this analysis using the 90th percentile of labeled development concentrations, 221 \conc{}. This defines an upper-tail group with enough examples for comparison and has no regulatory interpretation as an hourly standard. In 2014, 869 hours are at or above the cutoff and 7,792 are below it. Every model underestimates the high group on average (Table~\ref{tab:high}). XGBoost underestimated 94.1\% of high hours, with RMSE 142.70 \conc{} versus 41.77 below the cutoff. The tuned forest reduces pooled RMSE relative to the original forest while increasing RMSE for the high group. The scatter plots show how strongly estimates tend to compress at the upper end (Figure~\ref{fig:predicted}).
 
-\section{Conclusion}
-We compared four regression approaches for estimating hourly Beijing PM2.5 concentrations from weather and calendar features using a chronological train/validation/test design. On the held-out 2014 data, Random Forest performed best, achieving MAE 48.073 $\mu$g/m$^3$, RMSE 71.397 $\mu$g/m$^3$, and $R^2=0.417$. Linear Regression and Ridge Regression improved over the mean baseline but were less accurate than Random Forest. The study demonstrates the value of comparing a simple baseline with linear and nonlinear methods while keeping future-year observations separate for evaluation. Its conclusions concern historical same-hour estimation; a genuine future-hour forecasting system would require a different target and information-availability design.
+\begin{table}[htbp]
+\centering
+\small
+\caption{2014 errors for concentrations at or above 221 \conc{} ($n=869$). Signed error is estimate minus observation. MAE, RMSE and signed error are in \conc{}.}
+\label{tab:high}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+Model & MAE & RMSE & Mean signed error & Underestimated \\
+\midrule
+Mean baseline & 219.47 & 233.63 & -219.47 & 100.0\% \\
+Linear Regression & 178.66 & 194.26 & -178.66 & 100.0\% \\
+Ridge Regression & 178.67 & 194.27 & -178.67 & 100.0\% \\
+Original Random Forest & 123.15 & 145.41 & -115.59 & 91.8\% \\
+Tuned Random Forest & 130.19 & 149.08 & -129.48 & 98.3\% \\
+Histogram Gradient Boosting & 120.62 & 142.24 & -117.71 & 93.4\% \\
+XGBoost & 120.72 & 142.70 & -117.73 & 94.1\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.94\linewidth]{figures/high_pollution_errors.png}
+\caption{Mean signed error by pollution group in 2014. Negative values indicate underestimation.}
+\label{fig:pollution}
+\end{figure}
+
+Seasonal groups contain 2,122, 2,202, 2,173, and 2,164 labeled hours in winter, spring, summer, and autumn, respectively. All seven models have higher RMSE in winter than in any other season. XGBoost ranges from 44.22 in summer to 85.18 \conc{} in winter. Tuned Random Forest has the lowest winter RMSE (83.57 \conc{}). A single annual score therefore hides variation in both absolute errors and relative model performance.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\linewidth]{figures/seasonal_performance.png}
+\caption{2014 RMSE by calendar season across the seven fitted models.}
+\label{fig:seasons}
+\end{figure}
+
+\subsection{Paired block-bootstrap uncertainty}
+We draw contiguous moving blocks of 72 and 168 clock hours with replacement in 2014, keeping the same sampled hours for every model in a pair \citep{kunsch1989}. Missing target hours remain gaps within blocks and are excluded from error totals. Each of 2,000 replicates per block length uses enough blocks, including a shorter final block, to match the original span in clock hours. Table~\ref{tab:bootstrap} gives the 2.5th and 97.5th percentiles of the paired RMSE differences. The intervals favor the tuned over the original forest and histogram boosting over the tuned forest for both block lengths. The XGBoost--histogram boosting intervals include zero. These intervals describe error differences conditional on the fitted models and the observed year. The analysis retains dependence within blocks but does not account for changes across years or refitting uncertainty.
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{First model minus reference model RMSE (\conc{}) and paired 95\% bootstrap intervals. Negative values favor the first model.}
+\label{tab:bootstrap}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+Comparison & Difference & 72-hour blocks & 168-hour blocks \\
+\midrule
+Tuned forest vs. original forest & -8.40 & [-13.31, -3.50] & [-13.73, -2.94] \\
+Histogram boosting vs. tuned forest & -2.14 & [-4.32, -0.15] & [-4.59, -0.33] \\
+XGBoost vs. histogram boosting & -0.74 & [-1.78, 0.32] & [-1.75, 0.49] \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Discussion and Limitations}
+The mean baseline supplies a reference for the amount of variation captured by weather and calendar information. The two additive linear fits have higher errors than the tree ensembles and each gives 457 negative estimates in 2014. These arise from unconstrained linear predictions. We retain those values to preserve the original configurations and score their estimates as produced. The original forest improved accuracy through nonlinear splits and interactions. The controlled ablation shows that longer weather history provides predictive information beyond the original inputs for all three newer ensembles. The boosted models gave the lowest overall test errors, although their difference was small compared with the improvement over the original forest. The gains on average coexist with substantial underestimation during the highest observed concentrations.
+
+Selecting settings from one year carries a risk of overfitting to that year's weather and pollution patterns. XGBoost uses 2013 for both early stopping and candidate ranking, and all validation results for selected models reflect the selection process. The 2014 observations were held out of fitting and selection, but team members had already seen some 2014 results in earlier versions of the project. The final-year comparisons should be interpreted as retrospective. Seasonal changes in error and possible shifts in emissions or weather between years also limit the use of one year to predict accuracy in another.
+
+The dataset pairs one pollution monitor with weather from the airport. It omits direct measures of emissions, traffic, and pollution at neighboring sites. The sample excludes hours with missing pollutant readings, which can affect evaluation if missingness is associated with pollution or weather. The weather-history proxies can also change due to resets in accumulated fields. Because the observations come from one historical period in one city, transfer to other monitoring locations or present-day Beijing requires separate evaluation. The contemporaneous weather requirement prevents these fits from being used as future-hour forecasts without redesigning the prediction task.
+
+\section{Conclusion and Future Research Directions}
+Under chronological evaluation, 24- and 72-hour weather summaries and three-hour differences reduced 2014 estimation errors across the three ensemble architectures at fixed settings. XGBoost achieved the lowest 2014 RMSE (60.110 \conc{}, $R^2=0.587$), 15.8\% below the original forest. The small difference between the boosted models should be considered alongside the bootstrap intervals, large winter errors, and underestimation in the highest concentration group.
+
+Future work could define a one-hour-ahead target, compare against a persistence baseline, and restrict inputs to readings or weather forecasts available at issuance. Repeated chronological backtests and additional cities would help assess transfer across time and place. Adding recent pollution observations and information on traffic or emissions could test whether those inputs improve performance during high-pollution episodes. Prediction intervals could help communicate the uncertainty that remains in any individual hourly estimate.
 
 \bibliographystyle{plainnat}
-\begin{thebibliography}{9}
-\bibitem[UCI Machine Learning Repository(2016)]{uci381} UCI Machine Learning Repository. \emph{Beijing PM2.5 Data}. Dataset 381. \url{https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data}. Accessed October 2026.
-\bibitem[scikit-learn developers(2026a)]{sklearnlinear} scikit-learn developers. \emph{LinearRegression documentation}. \url{https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LinearRegression.html}.
-\bibitem[scikit-learn developers(2026b)]{sklearnridge} scikit-learn developers. \emph{Ridge documentation}. \url{https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.Ridge.html}.
-\bibitem[scikit-learn developers(2026c)]{sklearnforest} scikit-learn developers. \emph{RandomForestRegressor documentation}. \url{https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.RandomForestRegressor.html}.
-\end{thebibliography}
+\bibliography{references}
 \end{document}

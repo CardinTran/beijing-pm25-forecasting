@@ -1,84 +1,53 @@
-# Forecasting Hourly Air Pollution in Beijing Using Weather Data
+# Estimating Hourly PM2.5 in Beijing from Weather Data
 
-We estimate hourly PM2.5 in Beijing using weather and time features. These are same-hour estimates rather than future-hour forecasts.
+Group 7, CSC 3730 Machine Learning and Data Analytics, Louisiana State University
 
-CSC 3730 — Machine Learning and Data Analytics
+Cardin Tran, Jimmy Rubio-Gonzalez, Isaac Humphries, Vamsi Marrapu, Abdul Mutaal, Nhi Tran, Renee Vo, and David Zhong
 
-Louisiana State University — Group 7
+We use weather and calendar data to estimate PM2.5 for the same hour. We compare seven models, from a mean baseline to tuned tree ensembles.
 
-## Members
+## Data
 
-- Jimmy Rubio-Gonalez
-- Cardin Tran
-- Isaac Humphries
-- Vamsi Marrapu
-- Abdul Mutaal
-- Nhi Tran
-- Renee Vo
-- David Zhong
+The original CSV is in `data/`. It has 43,824 hours. Of these, 2,067 are missing a PM2.5 reading and 41,757 can be used to score models. We build weather histories before dropping hours with missing readings. PM2.5 readings are used only as targets. [UCI Beijing PM2.5](https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data) and [CC BY 4.0 license](https://creativecommons.org/licenses/by/4.0/)
 
-## Dataset and models
+- Train on 2010 to 2012 using 24,418 hours.
+- Choose model settings on 2013 using 8,678 hours. XGBoost also uses this year for early stopping.
+- Refit on 2010 to 2013 using 33,096 hours.
+- Score all models on the same 8,661 hours in 2014. Earlier versions of the project already reported some 2014 scores.
 
-Use the [UCI Beijing PM2.5 dataset](https://archive.ics.uci.edu/dataset/381/beijing+pm2+5+data) from 2010–2014. Place `PRSA_data_2010.1.1-2014.12.31.csv` in `data/`.
+## Run the project
 
-Models:
+Use Python 3.12. On macOS, run `brew install libomp` for XGBoost. From the project folder, set up the environment.
 
-- Mean baseline
-- Linear Regression
-- Ridge Regression
-- Random Forest Regression
-
-Train on 2010–2012 and validate on 2013. Refit on 2010–2013 and test on 2014. Preprocessing learns from training data only. Rows without PM2.5 are dropped.
-
-Source: Chen, S. (2015). *Beijing PM2.5* [Dataset]. UCI Machine Learning Repository. [DOI](https://doi.org/10.24432/C5JS49). [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
-
-## Setup
-
-Install Python 3.11 and Git. Clone the repo:
-
-```bash
-git clone https://github.com/CardinTran/beijing-pm25-forecasting.git
-cd beijing-pm25-forecasting
-```
-
-macOS or Linux:
-
-```bash
-python3.11 -m venv .venv
+```sh
+python3.12 -m venv .venv
 source .venv/bin/activate
-```
-
-Windows PowerShell:
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
-
-If PowerShell blocks activation use `.venv\Scripts\activate.bat` in Command Prompt.
-
-## Run
-
-With `.venv` active run these commands from the repo folder:
-
-```bash
 python -m pip install -r requirements.txt
-python main.py
 ```
 
-To leave the environment:
+On Windows PowerShell, use `py -3.12 -m venv .venv` and `.\.venv\Scripts\Activate.ps1`, then run the same install command.
 
-```bash
-deactivate
+Run all 204 search candidates and the final experiments.
+
+```sh
+python main.py --mode full --jobs 4
 ```
 
-## Results
+Use the saved settings for a faster run. This still fits and scores the models. Running `python main.py` also uses saved settings.
 
-The program prints MAE and RMSE in µg/m³ plus R². It saves:
+```sh
+python main.py --mode saved --jobs 4
+```
 
-- `results/model_comparison.csv` — validation and test scores
-- `results/figures/model_comparison.png` — test score comparison
-- `results/figures/actual_vs_predicted.png` — predictions against actual 2014 values
-- `results/figures/correlation_heatmap.png` — numeric correlations from 2010–2013
+Run the tests with `python -m unittest discover -s tests -v`.
 
-Each run replaces these outputs.
+## Results and report
+
+The tables go in `results/` and the plots go in `report/figures/`. Add `--output-dir path/to/run` to save a separate run with its own tables and figures. Full mode writes the search tables. Saved mode leaves them in place.
+
+- `model_comparison.csv` has MAE, RMSE, R² and sample counts.
+- `best_hyperparameters.json` has the chosen settings. The grid search CSVs have every candidate and its 2013 RMSE.
+- `predictions.csv` has timestamps, actual PM2.5 and model predictions.
+- The other CSVs show how errors change with weather history, tuning, pollution level and season. They also include feature importance and uncertainty in the differences between models.
+
+Read the [report](report/Group_7.pdf). To build it in Overleaf, upload the contents of `report/` and use `main.tex` with pdfLaTeX. If you have LaTeX installed locally, run `cd report && latexmk -pdf -jobname=Group_7 main.tex`.
