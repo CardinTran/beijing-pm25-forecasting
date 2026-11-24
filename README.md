@@ -2,7 +2,7 @@
 
 Group 7, CSC 3730 Machine Learning and Data Analytics, Louisiana State University
 
-Cardin Tran, Jimmy Rubio-Gonalez, Isaac Humphries, Vamsi Marrapu, Abdul Mutaal, Nhi Tran, Renee Vo, and David Zhong
+Cardin Tran, Jimmy Rubio-Gonzalez, Isaac Humphries, Vamsi Marrapu, Abdul Mutaal, Nhi Tran, Renee Vo, and David Zhong
 
 We use weather and calendar data to estimate PM2.5 for the same hour. We compare seven models, from a mean baseline to tuned tree ensembles.
 
