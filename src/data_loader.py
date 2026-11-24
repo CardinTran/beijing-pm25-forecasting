@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pandas as pd
 
-# Expect the original UCI columns
 REQUIRED_COLUMNS = [
     "No", "year", "month", "day", "hour", "pm2.5", "DEWP", "TEMP",
     "PRES", "cbwd", "Iws", "Is", "Ir",
@@ -20,7 +19,6 @@ def load_dataset(path):
     if path.suffix.lower() != ".csv":
         raise ValueError(f"Expected a CSV file: {path}")
     try:
-        # Read NA markers as missing values
         data = pd.read_csv(path)
     except (pd.errors.ParserError, pd.errors.EmptyDataError, UnicodeError) as error:
         raise ValueError(f"Cannot read CSV: {path}") from error
